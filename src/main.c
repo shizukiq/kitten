@@ -450,7 +450,8 @@ int main(int argc, char **argv)
 			show_summary = 1;
 			continue;
 		}
-		if (strcmp(argument, "-H") == 0 || strcmp(argument, "--human-readable") == 0) {
+		if (strcmp(argument, "-H") == 0 ||
+		    strcmp(argument, "--human-readable") == 0) {
 			options.human_readable = 1;
 			continue;
 		}
@@ -463,7 +464,8 @@ int main(int argc, char **argv)
 
 	if (path_count == 0) {
 		had_error = kitten_walk_path(&context, ".", 1) != 0;
-	} else if (path_count == 1 && lstat(argv[1], &st) == 0 && S_ISDIR(st.st_mode)) {
+	} else if (path_count == 1 && lstat(argv[1], &st) == 0 &&
+	    S_ISDIR(st.st_mode)) {
 		if (enter_directory(argv[1], &st, &changed) != 0) {
 			saved_errno = errno;
 			fputs("kitten: ", stderr);

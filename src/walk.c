@@ -54,7 +54,8 @@ static char *join_path(const char *left, const char *right)
 	size_t extra = need_slash ? 2 : 1;
 	char *path;
 
-	if (left_len > SIZE_MAX - right_len || left_len + right_len > SIZE_MAX - extra)
+	if (left_len > SIZE_MAX - right_len ||
+	    left_len + right_len > SIZE_MAX - extra)
 		return NULL;
 	path = malloc(left_len + right_len + extra);
 	if (!path)

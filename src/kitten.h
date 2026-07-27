@@ -39,15 +39,16 @@ struct kitten_context {
 };
 
 int kitten_walk_path(struct kitten_context *context, const char *path,
-	int is_last);
+    int is_last);
 void kitten_print_summary(const struct kitten_context *context);
 void kitten_print_escaped(FILE *out, const char *text);
 void kitten_print_preview_text(const struct kitten_context *context, FILE *out,
-	const char *text, size_t length);
+    const char *text, size_t length);
 const char *kitten_tree_branch(const struct kitten_context *context,
-	int is_last);
-const char *kitten_tree_stem(const struct kitten_context *context, int is_last);
+    int is_last);
+const char *kitten_tree_stem(const struct kitten_context *context,
+    int is_last);
 void kitten_format_size(const struct kitten_context *context, uintmax_t bytes,
-	char *buf, size_t size);
+    char *buf, size_t size);
 
 #endif
