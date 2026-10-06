@@ -328,17 +328,9 @@ static int print_file_preview(struct kitten_context *context, const char *path,
 
 	while ((line_status = read_preview_line(fp, &line, &cap,
 	    options->preview_limit - bytes_read, &line_bytes)) > PREVIEW_LINE_EOF) {
-		if (line_status == PREVIEW_LINE_TRUNCATED) {
-			printf("%s%s ", prefix, bar);
-			if (options->russian)
-				printf("[обрезано после %s]\n", limit_size);
-			else
-				printf("[truncated after %s]\n", limit_size);
-			++totals->skipped;
-			saw_content = 1;
-			break;
-		}
 		bytes_read += line_bytes;
+		if (line_bytes == 0)
+			break;
 		while (line_bytes > 0 && (line[line_bytes - 1] == '\n' ||
 		    line[line_bytes - 1] == '\r')) {
 			--line_bytes;
@@ -351,9 +343,18 @@ static int print_file_preview(struct kitten_context *context, const char *path,
 			putchar('\n');
 		}
 		saw_content = 1;
+		if (line_status == PREVIEW_LINE_TRUNCATED)
+			break;
 	}
 
-	if (line_status == PREVIEW_LINE_ERROR || ferror(fp)) {
+	if (line_status == PREVIEW_LINE_TRUNCATED) {
+		printf("%s%s ", prefix, bar);
+		if (options->russian)
+			printf("[обрезано после %s]\n", limit_size);
+		else
+			printf("[truncated after %s]\n", limit_size);
+		++totals->skipped;
+	} else if (line_status == PREVIEW_LINE_ERROR || ferror(fp)) {
 		print_tree_status(context, prefix, bar, "[read error]", "[ошибка чтения]");
 		had_error = 1;
 		++totals->errors;

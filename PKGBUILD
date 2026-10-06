@@ -1,10 +1,10 @@
 pkgname=kitten
-pkgver=1.0.0
+pkgver=0.1.0
 pkgrel=1
 pkgdesc="Kitten application"
 arch=('x86_64')
-url="https://github.com/USERNAME/kitten"
-license=('MIT')
+url="https://github.com/shizukiq/kitten"
+license=('BSD-2-Clause')
 depends=()
 makedepends=('make' 'gcc')
 
@@ -19,6 +19,6 @@ build() {
 package() {
     cd "$srcdir/$pkgname-$pkgver"
 
-    install -Dm755 kitten "$pkgdir/usr/bin/kitten"
+    make PREFIX=/usr DESTDIR="$pkgdir" install
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
