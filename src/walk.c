@@ -112,8 +112,8 @@ enum preview_line {
 	PREVIEW_LINE_TRUNCATED
 };
 
-static FILE *open_preview(const char *path, const struct stat *expected,
-    off_t *size, enum preview_open *result)
+static FILE *open_preview(int parent_fd, const char *path,
+    const struct stat *expected, off_t *size, enum preview_open *result)
 {
 	struct stat st;
 	FILE *fp;
@@ -122,7 +122,7 @@ static FILE *open_preview(const char *path, const struct stat *expected,
 	int saved_errno;
 
 	/* Avoid blocking if a regular path is replaced with a FIFO before fstat. */
-	fd = open(path, O_RDONLY | O_NONBLOCK | O_NOFOLLOW);
+	fd = openat(parent_fd, path, O_RDONLY | O_NONBLOCK | O_NOFOLLOW);
 	if (fd < 0) {
 		*result = PREVIEW_OPEN_ERROR;
 		return NULL;
@@ -233,8 +233,8 @@ static enum preview_line read_preview_line(FILE *fp, char **line,
 	return PREVIEW_LINE_TRUNCATED;
 }
 
-static int print_file_preview(struct kitten_context *context, const char *path,
-    const char *prefix, const struct stat *expected)
+static int print_file_preview(struct kitten_context *context, int parent_fd,
+    const char *path, const char *prefix, const struct stat *expected)
 {
 	const struct kitten_options *options = context->options;
 	struct kitten_totals *totals = context->totals;
@@ -258,7 +258,7 @@ static int print_file_preview(struct kitten_context *context, const char *path,
 
 	printf("%s%s %s\n", prefix, options->unicode_tree ? "┌──" : "+--",
 	    options->russian ? "содержимое" : "contents");
-	fp = open_preview(path, expected, &size, &opened);
+	fp = open_preview(parent_fd, path, expected, &size, &opened);
 	if (!fp) {
 		int open_error = errno;
 
@@ -331,9 +331,10 @@ static int print_file_preview(struct kitten_context *context, const char *path,
 		bytes_read += line_bytes;
 		if (line_bytes == 0)
 			break;
-		while (line_bytes > 0 && (line[line_bytes - 1] == '\n' ||
-		    line[line_bytes - 1] == '\r')) {
+		if (line[line_bytes - 1] == '\n') {
 			--line_bytes;
+			if (line_bytes > 0 && line[line_bytes - 1] == '\r')
+				--line_bytes;
 		}
 		if (line_bytes == 0) {
 			printf("%s%s\n", prefix, bar);
@@ -372,16 +373,16 @@ static int print_file_preview(struct kitten_context *context, const char *path,
 	return had_error;
 }
 
-static int print_entry(struct kitten_context *context, const char *path,
-    const char *prefix, int is_last, int is_root, long depth);
+static int print_entry(struct kitten_context *context, int parent_fd,
+    const char *path, const char *prefix, int is_last, int is_root, long depth);
 
 static int show_dirent(const struct dirent *entry)
 {
 	return strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0;
 }
 
-static DIR *open_directory(const char *path, const struct stat *expected,
-    int *changed)
+static DIR *open_directory(int parent_fd, const char *path,
+    const struct stat *expected, int *changed)
 {
 	struct stat st;
 	DIR *dir;
@@ -389,7 +390,8 @@ static DIR *open_directory(const char *path, const struct stat *expected,
 	int saved_errno;
 
 	*changed = 0;
-	fd = open(path, O_RDONLY | O_NONBLOCK | O_DIRECTORY | O_NOFOLLOW);
+	fd = openat(parent_fd, path,
+	    O_RDONLY | O_NONBLOCK | O_DIRECTORY | O_NOFOLLOW);
 	if (fd < 0)
 		return NULL;
 	if (fstat(fd, &st) != 0) {
@@ -432,7 +434,7 @@ static void report_directory_error(struct kitten_context *context,
 }
 
 static int entry_is_visible(const struct kitten_context *context,
-    const char *path, const char *name)
+    int parent_fd, const char *path, const char *name)
 {
 	struct stat st;
 
@@ -440,7 +442,8 @@ static int entry_is_visible(const struct kitten_context *context,
 		return 0;
 	if (!context->options->dirs_only)
 		return 1;
-	return lstat(path, &st) != 0 || S_ISDIR(st.st_mode);
+	return fstatat(parent_fd, name, &st, AT_SYMLINK_NOFOLLOW) != 0 ||
+	    S_ISDIR(st.st_mode);
 }
 
 static int compare_names(const void *left, const void *right)
@@ -452,8 +455,7 @@ static int compare_names(const void *left, const void *right)
 }
 
 static int print_sorted_directory(struct kitten_context *context,
-    const char *path, const char *prefix, long depth,
-    const struct stat *expected)
+    DIR *dir, const char *path, const char *prefix, long depth)
 {
 	struct dirent *entry;
 	char **entries = NULL;
@@ -462,14 +464,6 @@ static int print_sorted_directory(struct kitten_context *context,
 	size_t i;
 	int had_error = 0;
 	int read_error = 0;
-	int changed;
-	DIR *dir = open_directory(path, expected, &changed);
-
-	if (!dir) {
-		report_directory_error(context, prefix, errno, changed);
-		return 1;
-	}
-
 	errno = 0;
 	while ((entry = readdir(dir)) != NULL) {
 		char **larger;
@@ -482,7 +476,7 @@ static int print_sorted_directory(struct kitten_context *context,
 			errno = ENOMEM;
 			break;
 		}
-		if (!entry_is_visible(context, child_path, entry->d_name)) {
+		if (!entry_is_visible(context, dirfd(dir), child_path, entry->d_name)) {
 			++context->totals->skipped;
 			free(child_path);
 			errno = 0;
@@ -509,8 +503,6 @@ static int print_sorted_directory(struct kitten_context *context,
 		errno = 0;
 	}
 	if (errno)
-		read_error = errno;
-	if (closedir(dir) != 0 && !read_error)
 		read_error = errno;
 	if (read_error)
 		had_error = 1;
@@ -543,8 +535,8 @@ static int print_sorted_directory(struct kitten_context *context,
 		is_last_visible = i == count - 1;
 		if (read_error)
 			is_last_visible = 0;
-		if (print_entry(context, child_path, prefix, is_last_visible, 0,
-		    depth) != 0)
+		if (print_entry(context, dirfd(dir), child_path, prefix,
+		    is_last_visible, 0, depth) != 0)
 			had_error = 1;
 		free(child_path);
 	}
@@ -558,22 +550,13 @@ static int print_sorted_directory(struct kitten_context *context,
 }
 
 static int print_unsorted_directory(struct kitten_context *context,
-    const char *path, const char *prefix, long depth,
-    const struct stat *expected)
+    DIR *dir, const char *path, const char *prefix, long depth)
 {
 	struct dirent *entry;
 	char *pending = NULL;
 	int had_error = 0;
 	int saw_entry = 0;
 	int read_error = 0;
-	int changed;
-	DIR *dir = open_directory(path, expected, &changed);
-
-	if (!dir) {
-		report_directory_error(context, prefix, errno, changed);
-		return 1;
-	}
-
 	errno = 0;
 	while ((entry = readdir(dir)) != NULL) {
 		char *child_path;
@@ -591,7 +574,7 @@ static int print_unsorted_directory(struct kitten_context *context,
 			errno = 0;
 			continue;
 		}
-		if (!entry_is_visible(context, child_path, entry->d_name)) {
+		if (!entry_is_visible(context, dirfd(dir), child_path, entry->d_name)) {
 			++context->totals->skipped;
 			free(child_path);
 			errno = 0;
@@ -600,7 +583,8 @@ static int print_unsorted_directory(struct kitten_context *context,
 		saw_entry = 1;
 
 		if (pending) {
-			if (print_entry(context, pending, prefix, 0, 0, depth) != 0)
+			if (print_entry(context, dirfd(dir), pending, prefix, 0, 0,
+			    depth) != 0)
 				had_error = 1;
 			free(pending);
 		}
@@ -609,11 +593,9 @@ static int print_unsorted_directory(struct kitten_context *context,
 	}
 	if (errno)
 		read_error = errno;
-	if (closedir(dir) != 0 && !read_error)
-		read_error = errno;
-
 	if (pending) {
-		if (print_entry(context, pending, prefix, !read_error, 0, depth) != 0)
+		if (print_entry(context, dirfd(dir), pending, prefix, !read_error, 0,
+		    depth) != 0)
 			had_error = 1;
 		free(pending);
 	} else if (!saw_entry && !read_error) {
@@ -627,15 +609,32 @@ static int print_unsorted_directory(struct kitten_context *context,
 	return had_error;
 }
 
-static int print_directory(struct kitten_context *context, const char *path,
-    const char *prefix, long depth, const struct stat *expected)
+static int print_directory(struct kitten_context *context, int parent_fd,
+    const char *path, const char *name, const char *prefix, long depth,
+    const struct stat *expected)
 {
+	int changed;
+	int had_error;
+	DIR *dir = open_directory(parent_fd, name, expected, &changed);
+
+	if (!dir) {
+		report_directory_error(context, prefix, errno, changed);
+		return 1;
+	}
+
+	/* Keep children anchored to this directory even if its path is replaced. */
 	if (context->options->unsorted)
-		return print_unsorted_directory(context, path, prefix, depth, expected);
-	return print_sorted_directory(context, path, prefix, depth, expected);
+		had_error = print_unsorted_directory(context, dir, path, prefix, depth);
+	else
+		had_error = print_sorted_directory(context, dir, path, prefix, depth);
+	if (closedir(dir) != 0) {
+		report_directory_error(context, prefix, errno, 0);
+		had_error = 1;
+	}
+	return had_error;
 }
 
-static char *read_symlink_target(const char *path, off_t hint)
+static char *read_symlink_target(int parent_fd, const char *path, off_t hint)
 {
 	size_t capacity = 128;
 	char *target;
@@ -650,7 +649,7 @@ static char *read_symlink_target(const char *path, off_t hint)
 		return NULL;
 
 	for (;;) {
-		length = readlink(path, target, capacity - 1);
+		length = readlinkat(parent_fd, path, target, capacity - 1);
 		if (length < 0) {
 			int saved_errno = errno;
 
@@ -683,8 +682,8 @@ static char *read_symlink_target(const char *path, off_t hint)
 	}
 }
 
-static int print_entry(struct kitten_context *context, const char *path,
-    const char *prefix, int is_last, int is_root, long depth)
+static int print_entry(struct kitten_context *context, int parent_fd,
+    const char *path, const char *prefix, int is_last, int is_root, long depth)
 {
 	const struct kitten_options *options = context->options;
 	struct kitten_totals *totals = context->totals;
@@ -696,7 +695,7 @@ static int print_entry(struct kitten_context *context, const char *path,
 	char size[64];
 	uintmax_t value;
 
-	if (lstat(path, &st) != 0) {
+	if (fstatat(parent_fd, name, &st, AT_SYMLINK_NOFOLLOW) != 0) {
 		int stat_error = errno;
 
 		if (!is_root)
@@ -716,7 +715,7 @@ static int print_entry(struct kitten_context *context, const char *path,
 	}
 
 	if (S_ISLNK(st.st_mode)) {
-		char *target = read_symlink_target(path, st.st_size);
+		char *target = read_symlink_target(parent_fd, name, st.st_size);
 		int saved_errno = errno;
 		int target_error = target == NULL;
 
@@ -742,7 +741,7 @@ static int print_entry(struct kitten_context *context, const char *path,
 		fputs("/\n", stdout);
 		if (options->max_depth == 0)
 			return 0;
-		return print_directory(context, path, "", 1, &st);
+		return print_directory(context, parent_fd, path, name, "", 1, &st);
 	}
 
 	value = st.st_size > 0 ? (uintmax_t)st.st_size : 0;
@@ -755,7 +754,7 @@ static int print_entry(struct kitten_context *context, const char *path,
 			printf(" [%s, %s]\n", options->russian ? "файл" : "file", size);
 			if (!options->show_content)
 				return 0;
-			return print_file_preview(context, path, "    ", &st);
+			return print_file_preview(context, parent_fd, name, "    ", &st);
 		}
 		++totals->special;
 		printf(" [%s, %s]\n", options->russian ? "специальный файл" :
@@ -778,8 +777,8 @@ static int print_entry(struct kitten_context *context, const char *path,
 			return 1;
 		}
 		{
-			int result = print_directory(context, path, next_prefix, depth + 1,
-			    &st);
+			int result = print_directory(context, parent_fd, path, name,
+			    next_prefix, depth + 1, &st);
 
 			free(next_prefix);
 			return result;
@@ -802,7 +801,8 @@ static int print_entry(struct kitten_context *context, const char *path,
 			return 1;
 		}
 		{
-			int result = print_file_preview(context, path, next_prefix, &st);
+			int result = print_file_preview(context, parent_fd, name,
+			    next_prefix, &st);
 
 			free(next_prefix);
 			return result;
@@ -818,5 +818,5 @@ static int print_entry(struct kitten_context *context, const char *path,
 int kitten_walk_path(struct kitten_context *context, const char *path,
     int is_last)
 {
-	return print_entry(context, path, "", is_last, 1, 0);
+	return print_entry(context, AT_FDCWD, path, "", is_last, 1, 0);
 }

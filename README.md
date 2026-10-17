@@ -91,6 +91,9 @@ Options with values also accept a separate argument, such as `--depth 2`.
 Entries are sorted according to the current locale. Use `-U` for large
 directories to avoid keeping their names in memory for sorting.
 
+Russian labels use UTF-8. Automatic language selection uses Russian only in a
+Russian UTF-8 locale; other locales use English.
+
 Exclusions use shell-style patterns, so quote wildcards to pass them to
 `kitten`. They apply to directory entries, including hidden files, but not to
 paths explicitly supplied as roots. With one directory operand, paths are

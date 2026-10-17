@@ -44,7 +44,7 @@ static int locale_is_utf8(void)
 static int set_language(struct kitten_options *options, const char *name)
 {
 	if (strcmp(name, "auto") == 0)
-		options->russian = locale_is_russian();
+		options->russian = locale_is_russian() && locale_is_utf8();
 	else if (strcmp(name, "en") == 0)
 		options->russian = 0;
 	else if (strcmp(name, "ru") == 0)
@@ -350,7 +350,7 @@ int main(int argc, char **argv)
 	context.totals = &totals;
 
 	setlocale(LC_ALL, "");
-	options.russian = locale_is_russian();
+	set_language(&options, "auto");
 	options.unicode_tree = locale_is_utf8();
 	/* Diagnostics should honor --language even when it follows a bad option. */
 	select_argument_language(&options, argc, argv);
@@ -463,7 +463,8 @@ int main(int argc, char **argv)
 
 	if (path_count == 0) {
 		had_error = kitten_walk_path(&context, ".", 1) != 0;
-	} else if (path_count == 1 && lstat(argv[1], &st) == 0 && S_ISDIR(st.st_mode)) {
+	} else if (path_count == 1 && options.max_depth != 0 &&
+	    lstat(argv[1], &st) == 0 && S_ISDIR(st.st_mode)) {
 		if (enter_directory(argv[1], &st, &changed) != 0) {
 			saved_errno = errno;
 			fputs("kitten: ", stderr);
