@@ -44,7 +44,7 @@ static const char *byte_word(const struct kitten_context *context,
 void kitten_format_size(const struct kitten_context *context, uintmax_t bytes,
     char *buf, size_t size)
 {
-	static const char *units[] = { "KiB", "MiB", "GiB", "TiB" };
+	static const char *units[] = { "KiB", "MiB", "GiB", "TiB", "PiB", "EiB" };
 	uintmax_t scale = 1024;
 	size_t unit = 0;
 

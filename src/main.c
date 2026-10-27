@@ -121,7 +121,7 @@ static int add_exclude(struct kitten_options *options, const char *pattern)
 	char **patterns;
 	char *copy;
 
-	if (!pattern[0] || options->exclude_count >= SIZE_MAX / sizeof(*patterns))
+	if (options->exclude_count >= SIZE_MAX / sizeof(*patterns))
 		return -1;
 	copy = strdup(pattern);
 	if (!copy)
@@ -153,7 +153,7 @@ static void print_usage(const char *argv0, int russian)
 		    "      --content=РЕЖИМ     режим просмотра: auto или never\n"
 		    "      --raw-content       не экранировать содержимое файлов\n"
 		    "      --dirs-only         показывать только каталоги\n"
-		    "  -H, --human-readable    размеры в KiB, MiB, GiB и TiB\n"
+		    "  -H, --human-readable    размеры в KiB, MiB, GiB, TiB, PiB и EiB\n"
 		    "  -U, --unsorted          обходить каталог без сортировки\n"
 		    "      --ascii             использовать ASCII-ветви\n"
 		    "      --unicode           использовать Unicode-ветви\n"
@@ -182,7 +182,7 @@ static void print_usage(const char *argv0, int russian)
 		    "      --content=WHEN      preview mode: auto or never\n"
 		    "      --raw-content       do not escape file contents\n"
 		    "      --dirs-only         show directories only\n"
-		    "  -H, --human-readable    print sizes in KiB, MiB, GiB, and TiB\n"
+		    "  -H, --human-readable    print sizes in KiB, MiB, GiB, TiB, PiB, and EiB\n"
 		    "  -U, --unsorted          traverse in filesystem order\n"
 		    "      --ascii             use ASCII tree drawing\n"
 		    "      --unicode           use Unicode tree drawing\n"
@@ -291,6 +291,13 @@ static int argument_error(struct kitten_options *options,
 		kitten_print_escaped(stderr, argument);
 	}
 	fputc('\n', stderr);
+	return finish_program(options, 2);
+}
+
+static int memory_error(struct kitten_options *options)
+{
+	fputs(options->russian ? "kitten: недостаточно памяти\n" :
+	    "kitten: memory exhausted\n", stderr);
 	return finish_program(options, 1);
 }
 
@@ -325,6 +332,25 @@ static int enter_directory(const char *path, const struct stat *expected,
 	}
 	close(fd);
 	return 0;
+}
+
+static void trim_symlink_operand(char *path)
+{
+	struct stat st;
+	size_t length = strlen(path);
+	size_t end = length;
+	char saved;
+
+	while (end > 1 && path[end - 1] == '/')
+		--end;
+	if (end == length)
+		return;
+
+	/* A trailing slash makes path resolution follow the final symlink. */
+	saved = path[end];
+	path[end] = '\0';
+	if (lstat(path, &st) != 0 || !S_ISLNK(st.st_mode))
+		path[end] = saved;
 }
 
 int main(int argc, char **argv)
@@ -396,13 +422,17 @@ int main(int argc, char **argv)
 			continue;
 		}
 		if (strcmp(argument, "--exclude") == 0) {
-			if (++i == argc || add_exclude(&options, argv[i]) != 0)
+			if (++i == argc || !argv[i][0])
 				return argument_error(&options, ERROR_EXCLUDE, i < argc ? argv[i] : NULL);
+			if (add_exclude(&options, argv[i]) != 0)
+				return memory_error(&options);
 			continue;
 		}
 		if (strncmp(argument, "--exclude=", 10) == 0) {
-			if (add_exclude(&options, argument + 10) != 0)
+			if (!argument[10])
 				return argument_error(&options, ERROR_EXCLUDE, argument + 10);
+			if (add_exclude(&options, argument + 10) != 0)
+				return memory_error(&options);
 			continue;
 		}
 		if (strcmp(argument, "--no-content") == 0) {
@@ -460,6 +490,9 @@ int main(int argc, char **argv)
 		}
 		return argument_error(&options, ERROR_UNKNOWN_OPTION, argument);
 	}
+
+	for (i = 1; i <= path_count; ++i)
+		trim_symlink_operand(argv[i]);
 
 	if (path_count == 0) {
 		had_error = kitten_walk_path(&context, ".", 1) != 0;

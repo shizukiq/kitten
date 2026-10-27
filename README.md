@@ -65,7 +65,7 @@ Options may appear before or after paths. Use `--` before a path starting with
 | `--content=auto\|never` | Enable or disable previews. |
 | `--raw-content` | Print preview text without escaping control characters. |
 | `--dirs-only` | Show only real directories. |
-| `-H`, `--human-readable` | Format sizes in KiB, MiB, GiB, and TiB. |
+| `-H`, `--human-readable` | Format sizes in KiB, MiB, GiB, TiB, PiB, and EiB. |
 | `-U`, `--unsorted` | Traverse in filesystem order. |
 | `--ascii`, `--unicode` | Select tree characters; UTF-8 locales default to Unicode. |
 | `--summary` | Print entry counts, bytes, skips, and errors. |
@@ -99,8 +99,9 @@ Exclusions use shell-style patterns, so quote wildcards to pass them to
 paths explicitly supplied as roots. With one directory operand, paths are
 relative to that directory. `.gitignore` is not read automatically.
 
-The exit status is `0` on success and `1` for argument, filesystem, or output
-errors. Skipping a binary file or a file over the preview limit is not an error.
+The exit status is `0` on success, `1` for filesystem or output errors, and `2`
+for invalid command-line arguments. Skipping a binary file or a file over the
+preview limit is not an error.
 
 ## Installation
 

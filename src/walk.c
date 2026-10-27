@@ -450,8 +450,9 @@ static int compare_names(const void *left, const void *right)
 {
 	const char *const *a = left;
 	const char *const *b = right;
+	int order = strcoll(*a, *b);
 
-	return strcoll(*a, *b);
+	return order ? order : strcmp(*a, *b);
 }
 
 static int print_sorted_directory(struct kitten_context *context,
@@ -565,10 +566,18 @@ static int print_unsorted_directory(struct kitten_context *context,
 			continue;
 		child_path = join_path(path, entry->d_name);
 		if (!child_path) {
+			if (pending) {
+				if (print_entry(context, dirfd(dir), pending, prefix, 0, 0,
+				    depth) != 0)
+					had_error = 1;
+				free(pending);
+				pending = NULL;
+			}
 			printf("%s%s ", prefix, kitten_tree_branch(context, 0));
 			kitten_print_escaped(stdout, entry->d_name);
 			printf(" %s\n", context->options->russian ? "[недостаточно памяти]" :
 			    "[out of memory]");
+			saw_entry = 1;
 			++context->totals->errors;
 			had_error = 1;
 			errno = 0;
@@ -703,9 +712,9 @@ static int print_entry(struct kitten_context *context, int parent_fd,
 		kitten_print_escaped(stdout, name);
 		putchar(' ');
 		if (options->russian)
-			printf("[не найдено: %s]\n", strerror(stat_error));
+			printf("[не удалось получить сведения: %s]\n", strerror(stat_error));
 		else
-			printf("[not found: %s]\n", strerror(stat_error));
+			printf("[cannot stat: %s]\n", strerror(stat_error));
 		++totals->errors;
 		return 1;
 	}
